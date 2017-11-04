@@ -171,7 +171,7 @@ def aa_print(album_artist):
 
 
 def normalise(txt):
-    return txt.strip()
+    return txt.strip().lower()
 
 
 def check(test, reference):
