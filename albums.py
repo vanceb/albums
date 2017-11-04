@@ -3,12 +3,21 @@ import logging
 import argparse
 import plistlib             # To read iTunes export xml file    
 from tinytag import TinyTag # ID3 Tag reader
+import yaml
 
 
 def parse_commandline():
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser(description='Compare albums from itunes against a file system')
+    parser.add_argument('action',
+                        help='The action you want to perform',
+                        choices=['index', 'compare']
+                        )
+    parser.add_argument('files',
+                        help='The file(s) to work on - compare needs exactly 2 files',
+                        nargs='+'
+                        )
     parser.add_argument('-l',
                         '--loglevel',
                         dest='loglevel',
@@ -17,21 +26,6 @@ def parse_commandline():
                         choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'],
                         required=False,
                         help='The library xml file produced by iTunes->File->Library->Export Library'
-                        )
-    parser.add_argument('-x',
-                        '--xml',
-                        dest='xml_filename',
-                        action='store',
-                        default='library.xml',
-                        required=True,
-                        help='The library xml file produced by iTunes->File->Library->Export Library'
-                        )
-    parser.add_argument('-d',
-                        '--directory',
-                        dest='base_directory',
-                        action='store',
-                        default='.',
-                        help='The base directory containing your albums.  Defaults to current directory'
                         )
     args = parser.parse_args()
     if args.loglevel.upper() == 'CRITICAL':
@@ -48,7 +42,7 @@ def parse_commandline():
         log.error('Unexpected log level!')
 
     log.debug('Commandline arguments: ' + str(args))
-    return args
+    return args, parser
 
 
 def artist_album_from_xml(filename):
@@ -144,6 +138,40 @@ def artist_album_from_dirs(basedir):
 
     return music
 
+
+def index(location, save_yml=True, save_to=None):
+    log = logging.getLogger(__name__)
+    music = {}
+    if location is not None:
+        path = os.path.abspath(location)
+        if os.path.isfile(path):
+            name, ext = os.path.splitext(path)
+            if ext == '.xml' or ext == '.plist':
+                log.info('Indexing data from plist xml ' + path)
+                music = artist_album_from_xml(path)
+            elif ext == '.yml':
+                save_yml = False
+                log.info('Loading pre-indexed data from yml: ' + path)
+                with open(path, 'r') as f:
+                    music = yaml.load(f)
+            else:
+                log.error('Unrecognised file type: ' + path)
+
+        elif os.path.isdir(path):
+            log.info('Indexing data recursively from ' + path)
+            music = artist_album_from_dirs(path)
+        if save_yml:
+            if save_to is not None:
+                out = save_to
+            else:
+                name, ext = os.path.splitext(path)
+                name = os.path.basename(name)
+                if name is None or name == '':
+                    name = 'index'
+                out = name + '.yml'
+            with open(out, 'w') as f:
+                f.write(yaml.dump(music))
+    return music
 
 def tree_print(music):
     artists = 0
@@ -308,16 +336,29 @@ def check(test, reference):
 def main():
     logging.basicConfig()
     log = logging.getLogger(__name__)
-    args = parse_commandline()
-    log.info('Started...')
-    log.info('Reading data from ' + args.xml_filename)
-    itunes = artist_album_from_xml(args.xml_filename)
-    log.info('Scanning ' + args.base_directory + ' for artists and albums')
-    disk = artist_album_from_dirs(args.base_directory)
-    
-    matched, miss, hit_artist, hit_album = check(itunes, disk)
+    args, parser = parse_commandline()
 
-    aa_print(matched)
+
+    if args.action == 'index':
+        for f in args.files:
+            index(f)
+    elif args.action == 'compare':
+        if len(args.files) != 2:
+            parser.print_help()
+            sys.exit(-1)
+        else:
+            reference = index(args.files[0])
+            test = index(args.files[1])
+            matched, miss, hit_artist, hit_album = check(test, reference)
+
+
+
+    #print('\n\nMiss')
+    #aa_print(miss)
+    #print('\n\nArtist')
+    #aa_print(hit_artist)
+    #print('\n\nAlbum')
+    #aa_print(hit_album)
 
     #tree_print(itunes)
     #tree_print(disk)
