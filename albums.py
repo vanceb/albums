@@ -198,6 +198,12 @@ def aa_print(album_artist):
         print(aa['artist'] + ' / ' + aa['album'])
 
 
+def aa_save(album_artist, filename, separator=' :: '):
+    with open(filename, 'w') as f:
+        for aa in album_artist:
+            f.write(aa['artist'] + separator + aa['album'] + '\n')
+    
+
 def normalise(txt):
     return txt.strip().lower()
 
@@ -351,7 +357,10 @@ def main():
             test = index(args.files[1])
             matched, miss, hit_artist, hit_album = check(test, reference)
 
-
+            aa_save(matched, 'matched.txt')
+            aa_save(miss, 'miss.txt')
+            aa_save(hit_artist, 'hit_artist.txt')
+            aa_save(hit_album, 'hit_album.txt')
 
     #print('\n\nMiss')
     #aa_print(miss)
