@@ -46,6 +46,7 @@ def parse_commandline():
     return args, parser
 
 
+def artist_album_from_xml(filename):
     log = logging.getLogger(__name__)
     path = os.path.abspath(filename)
     log.info('Opening ' + path)
