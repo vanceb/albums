@@ -1,15 +1,16 @@
 import os
 import logging
 import argparse
-import plistlib             # To read iTunes export xml file    
-from tinytag import TinyTag # ID3 Tag reader
+import plistlib                 # To read iTunes export xml file
+from tinytag import TinyTag     # ID3 Tag reader
 import yaml
 
 
 def parse_commandline():
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
-    parser = argparse.ArgumentParser(description='Compare albums from itunes against a file system')
+    parser = argparse.ArgumentParser(description='Compare albums from itunes'
+                                     + 'against a file system')
     parser.add_argument('action',
                         help='The action you want to perform',
                         choices=['index', 'compare']
@@ -45,7 +46,6 @@ def parse_commandline():
     return args, parser
 
 
-def artist_album_from_xml(filename):
     log = logging.getLogger(__name__)
     path = os.path.abspath(filename)
     log.info('Opening ' + path)
@@ -126,7 +126,6 @@ def artist_album_from_dirs(basedir):
                 else:
                     track_name = tag.title
 
-
                 if artist is not None:
                     if artist not in music:
                         music[artist] = {}
@@ -173,6 +172,7 @@ def index(location, save_yml=True, save_to=None):
                 f.write(yaml.dump(music))
     return music
 
+
 def tree_print(music):
     artists = 0
     albums = 0
@@ -191,7 +191,7 @@ def tree_print(music):
     print('Artists: ' + str(artists))
     print('Albums: ' + str(albums))
     print('Tracks: ' + str(tracks))
-    
+
 
 def aa_print(album_artist):
     for aa in album_artist:
@@ -202,7 +202,7 @@ def aa_save(album_artist, filename, separator=' :: '):
     with open(filename, 'w') as f:
         for aa in album_artist:
             f.write(aa['artist'] + separator + aa['album'] + '\n')
-    
+
 
 def normalise(txt):
     return txt.strip().lower()
@@ -222,7 +222,7 @@ def check(test, reference):
         norm = normalise(artist)
         log.debug('Normalised ' + artist + ' to ' + norm)
         if norm in ref_artist:
-            if ref_artist[norm] != artist:  
+            if ref_artist[norm] != artist:
                 log.debug('Additional entry for ' + norm + ' created for ' + artist)
                 ref_artist[norm].append(artist)
             else:
@@ -239,7 +239,7 @@ def check(test, reference):
             log.debug('Normalised ' + album + ' to ' + norm)
             if norm in ref_album:
                 if ref_album[norm] != album:
-                    log.debug('Additional entry for ' + norm + ' created for ' + album) 
+                    log.debug('Additional entry for ' + norm + ' created for ' + album)
                     ref_album[norm].append(album)
                 else:
                     log.debug('Duplicate album name ' + album + ', skipping')
@@ -344,7 +344,6 @@ def main():
     log = logging.getLogger(__name__)
     args, parser = parse_commandline()
 
-
     if args.action == 'index':
         for f in args.files:
             index(f)
@@ -362,17 +361,6 @@ def main():
             aa_save(hit_artist, 'hit_artist.txt')
             aa_save(hit_album, 'hit_album.txt')
 
-    #print('\n\nMiss')
-    #aa_print(miss)
-    #print('\n\nArtist')
-    #aa_print(hit_artist)
-    #print('\n\nAlbum')
-    #aa_print(hit_album)
-
-    #tree_print(itunes)
-    #tree_print(disk)
-
 
 if __name__ == "__main__":
     main()
-
