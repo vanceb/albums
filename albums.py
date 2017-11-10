@@ -239,7 +239,11 @@ def check(test, reference):
             norm = normalise(album)
             log.debug('Normalised ' + album + ' to ' + norm)
             if norm in ref_album:
-                if ref_album[norm] != album:
+                found = False
+                for albums in ref_album[norm]:
+                    if albums == album:
+                        found = True
+                if not found:
                     log.debug('Additional entry for ' + norm + ' created for ' + album)
                     ref_album[norm].append(album)
                 else:
