@@ -1,4 +1,5 @@
 import os
+import string
 import logging
 import argparse
 import plistlib                 # To read iTunes export xml file
@@ -206,7 +207,8 @@ def aa_save(album_artist, filename, separator=' :: '):
 
 
 def normalise(txt):
-    return txt.strip().lower()
+    no_punctuation = str.maketrans("", "", string.punctuation)
+    return txt.translate(no_punctuation).strip().lower()
 
 
 def check(test, reference):
@@ -281,8 +283,8 @@ def check(test, reference):
             found_artist = None
 
         # Look for the album
-        log.debug('Album: ' + album)
         for album in test[artist]:
+            log.debug('Album: ' + album)
             norm = normalise(album)
             if norm in ref_album:
                 log.debug('Found match for ' + album)
