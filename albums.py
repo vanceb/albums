@@ -541,7 +541,7 @@ def comp(a, b):
         b:  A hierarchical index of album->artist->tracks
 
     Returns:
-        returns a tuple of 3 artist-album lists:
+        returns a tuple of 2 artist-album lists:
             - both:  Album is in both indices
             - a_only:  Album is only in index a
     """
