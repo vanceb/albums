@@ -1,4 +1,14 @@
+"""
+Indexes and compares music files.
+
+This code enables the parsing of music files, creating a hierarchical index
+of artist -> album -> track.  It also allows for the comparison of
+2 hierarchical indices creating files of albums that are common as well as
+  albums that appear only in each of the indexes.
+"""
+
 import os
+import sys
 import string
 import logging
 import argparse
@@ -8,6 +18,12 @@ import yaml
 
 
 def parse_commandline():
+    """
+    Parse the command line.
+
+    This function parses the command line options for running the script as
+    a main program
+    """
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser(description='Compare albums from itunes'
@@ -17,7 +33,8 @@ def parse_commandline():
                         choices=['index', 'compare']
                         )
     parser.add_argument('files',
-                        help='The file(s) to work on - compare needs exactly 2 files',
+                        help='The file(s) to work on - compare needs exactly '
+                             + '2 files',
                         nargs='+'
                         )
     parser.add_argument('-l',
@@ -25,9 +42,14 @@ def parse_commandline():
                         dest='loglevel',
                         action='store',
                         default='INFO',
-                        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'],
+                        choices=['CRITICAL',
+                                 'ERROR',
+                                 'WARNING',
+                                 'INFO',
+                                 'DEBUG'],
                         required=False,
-                        help='The library xml file produced by iTunes->File->Library->Export Library'
+                        help='The library xml file produced by '
+                             + 'iTunes->File->Library->Export Library'
                         )
     args = parser.parse_args()
     if args.loglevel.upper() == 'CRITICAL':
@@ -48,6 +70,26 @@ def parse_commandline():
 
 
 def artist_album_from_xml(filename):
+    """
+    Index music metadata from iTunes plist xml files.
+
+    This function indexes the contents of an iTunes exported library.  The
+    exported library is in plist xml format.
+
+    Args:
+        filename:  The path to the xml file containing the export
+
+    Returns:
+        The function returns a hierarchical dictionary, where the first level
+        keys are the 'Artist'm the second level keys are the 'Album'.  The
+        third level is a list containing the track names in order of discovery
+
+        e.g.
+
+        music = artiust_album_from_xml('Library.xml')
+        track_list = music['AC/DC']['Back in Black']  # Python list of tracks
+
+    """
     log = logging.getLogger(__name__)
     path = os.path.abspath(filename)
     log.info('Opening ' + path)
@@ -65,7 +107,7 @@ def artist_album_from_xml(filename):
         elif 'Artist' in track:
             artist = track['Artist']
         else:
-            artist=None
+            artist = None
             log.warning("Unable to find Artist for track_id: " + track_id)
 
         if artist is not None:
@@ -79,7 +121,8 @@ def artist_album_from_xml(filename):
                 track_name = track['Name']
             else:
                 track_name = ''
-                log.warning('Unable to get track name for track_id: ' + track_id)
+                log.warning('Unable to get track name for track_id: '
+                            + track_id)
 
         if artist is not None:
             if artist not in music:
@@ -94,6 +137,27 @@ def artist_album_from_xml(filename):
 
 
 def artist_album_from_dirs(basedir):
+    """
+    Recursively index music metadata from directory tree.
+
+    Walk down a folder hierarchy starting at `basedir`.  When music files are
+    found ID3 tags are read to get the artist, album, and track information,
+    which is then placed into a hierarchical index.
+
+    Args:
+        basedir: The base directory from which to recursively descend.
+
+    Returns:
+        The function returns a hierarchical dictionary, where the first level
+        keys are the 'Artist'm the second level keys are the 'Album'.  The
+        third level is a list containing the track names in order of discovery
+
+        e.g.
+
+        music = artiust_album_from_dirs('/home/music')
+        track_list = music['AC/DC']['Back in Black']  # Python list of tracks
+
+    """
     log = logging.getLogger(__name__)
     music_file_exts = ['.mp3', '.flac', '.ogg', '.wav', '.wma', '.mp4', '.m4a']
     music = {}
@@ -135,12 +199,29 @@ def artist_album_from_dirs(basedir):
                         music[artist][album] = [track_name]
                     else:
                         music[artist][album].append(track_name)
-                    log.debug('Processed: ' + artist + '/' + album + '/' + track_name)
+                    log.debug('Processed: ' + artist + '/' + album
+                              + '/' + track_name)
 
     return music
 
 
 def index(location, save_yml=True, save_to=None):
+    """
+    Wrapper function for index functions.
+
+    Depending on whether the `location` is a file or directory it calls:
+
+    album_artist_from_xml(location)  # If location is a file
+    album_artist_from_dirs(location)  # If location is a directory
+
+    Args:
+        location:  A string containing the location of file or directory to be
+                   indexed.
+        save_yml:  Save the created index to a yaml file?  Defaults to True
+        save_to:   The file name to save the yaml data to.  If None then
+                   defaults to the local directory with a name the same as the
+                   index location, but with a '.yml' extension
+    """
     log = logging.getLogger(__name__)
     music = {}
     if location is not None:
@@ -176,6 +257,23 @@ def index(location, save_yml=True, save_to=None):
 
 
 def tree_print(music):
+    """
+    Print out hierarchical index data.
+
+    Useful for debugging.  View the hierarchical index scructure created using
+    the index() function.
+
+    e.g.
+
+    AC/DC
+        Back in Black
+            Hells Bells
+            Shoot to Thrill
+            ...
+
+    Args:
+        music:  A hierarchical datastructure to be printed out
+    """
     artists = 0
     albums = 0
     tracks = 0
@@ -195,27 +293,82 @@ def tree_print(music):
     print('Tracks: ' + str(tracks))
 
 
-def aa_print(album_artist):
+def aa_print(album_artist, separator=' :: '):
+    """
+    Print out artist and album from a dictionary.
+
+    Useful for debugging certain datascructures or log files
+
+    Args:
+        album_artist:  A list of dictionaries containing at least
+        'artist' and 'album' keys.
+        separator:  The separator to use between the artist and album
+    """
     for aa in album_artist:
-        print(aa['artist'] + ' / ' + aa['album'])
+        print(aa['artist'] + separator + aa['album'])
 
 
 def aa_save(album_artist, filename, separator=' :: '):
+    """
+    Save artist album information.
+
+    Saves artist album information to a file, one album per line
+
+    Args:
+        album_artist:  A list of dictionaries containing albums and associated
+                       artist.
+        filename:  The filename of the file to save the data to.
+        separator:  The separator to use between the artist and the album.
+    """
     with open(filename, 'w') as f:
         for aa in album_artist:
             f.write(aa['artist'] + separator + aa['album'] + '\n')
 
 
 def normalise(txt):
+    """
+    Normalise text to allow for easier matching.
+
+    Removes punctuation, strips whitespace from the ends of the text then
+    lower-cases it.
+
+    Args:
+        txt:  The text to normalise
+
+    Returns:
+        A normalised string
+    """
     no_punctuation = str.maketrans("", "", string.punctuation)
     return txt.translate(no_punctuation).strip().lower()
 
 
 def check(test, reference):
+    """
+    Compare test against reference indexes.
+
+    This was my first attempt at comparing 2 indexes to see which albums were
+    missing, but it involves designating one of the indexes as the reference.
+    In realist it is likely that both indices have additional and missing
+    albums.  My second attempt is the compare() function
+
+    Args:
+        test:  A hierarchical index to be checked against the reference
+        reference:  A hierarchical index to use as a comparison reference.
+
+    Returns:
+        A tuple of 4 datascructures containing album artist dictionaries
+        matched:  A list of album artist dictionaries for albums appearing in
+                  both test and reference indices.
+        hit_artist:  A list of album artist dictionaries for albums where only
+                     the artist matched.
+        hit_album:  A list of album artist dictionaries for albums where only
+                    the album name matched.
+        miss:  A list of album artist dictionaries where no match was found
+    """
     log = logging.getLogger(__name__)
     log.debug('Started to check test against reference')
     # Create an index of the reference
-    ref_artist = {}     # Hash lookup of normalised artists to full artist names
+    ref_artist = {}     # Hash lookup of normalised artist to full artist names
     ref_album = {}      # Hash lookup of normalised albums to full titles
     album_artist = {}   # Lookup from album to list of artists
     log.debug('Building reference indices')
@@ -226,7 +379,8 @@ def check(test, reference):
         log.debug('Normalised ' + artist + ' to ' + norm)
         if norm in ref_artist:
             if ref_artist[norm] != artist:
-                log.debug('Additional entry for ' + norm + ' created for ' + artist)
+                log.debug('Additional entry for ' + norm
+                          + ' created for ' + artist)
                 ref_artist[norm].append(artist)
             else:
                 log.debug('Artist ' + artist + ' already indexed, skipping')
@@ -246,7 +400,8 @@ def check(test, reference):
                     if albums == album:
                         found = True
                 if not found:
-                    log.debug('Additional entry for ' + norm + ' created for ' + album)
+                    log.debug('Additional entry for ' + norm
+                              + ' created for ' + album)
                     ref_album[norm].append(album)
                 else:
                     log.debug('Duplicate album name ' + album + ', skipping')
@@ -257,7 +412,8 @@ def check(test, reference):
             # Create a reverse lookup from album to list of artists
             log.debug('Creating reverse lookup of album to artist')
             if album in album_artist:
-                log.debug('Additional entry for album ' + album + ' created for ' + artist)
+                log.debug('Additional entry for album ' + album
+                          + ' created for ' + artist)
                 album_artist[album].append(artist)
             else:
                 log.debug('New entry for ' + norm + ' created for ' + artist)
@@ -305,16 +461,9 @@ def check(test, reference):
                     poss = []
                     for artist in found_artist:
                         for album in found_album:
-                            try:
-                                # This will throw an exception if no correlation
-                                tracks = reference[artist][album]
-                                # No exception so we have a hit
+                            if album in reference[artist]:
                                 hit += 1
                                 poss.append({'artist': artist, 'album': album})
-                            except:
-                                # Do nothing, but continue to loop over
-                                # possibilities
-                                pass
                     if hit == 0:
                         # No correlation between the matched artist and album!
                         log.info('No correlation: ' + artist + '/' + album)
@@ -347,9 +496,11 @@ def check(test, reference):
 
 
 def main():
+    """Run indexing and comparison operations from the command line."""
     logging.basicConfig()
     log = logging.getLogger(__name__)
     args, parser = parse_commandline()
+    log.debug("Starting with: " + args)
 
     if args.action == 'index':
         for f in args.files:
