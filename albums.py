@@ -221,6 +221,10 @@ def index(location, save_yml=True, save_to=None):
         save_to:   The file name to save the yaml data to.  If None then
                    defaults to the local directory with a name the same as the
                    index location, but with a '.yml' extension
+    Returns:
+        A tuple of:
+            hierarchical index of artist->album->track
+            basefilename of the source
     """
     log = logging.getLogger(__name__)
     music = {}
@@ -253,7 +257,7 @@ def index(location, save_yml=True, save_to=None):
                 out = name + '.yml'
             with open(out, 'w') as f:
                 f.write(yaml.dump(music))
-    return music
+    return music, name
 
 
 def tree_print(music):
@@ -340,6 +344,35 @@ def normalise(txt):
     """
     no_punctuation = str.maketrans("", "", string.punctuation)
     return txt.translate(no_punctuation).strip().lower()
+
+
+def normalise_index(index):
+    """
+    Normalise an index.
+
+    Normalise an index to allow for better matching
+
+    Args:
+        index:  The index to normalise
+
+    Returns:
+        returns a normalised version of the index
+    """
+    log = logging.getLogger(__name__)
+    norm = {}
+    for artist in index:
+        norm_artist = normalise(artist)
+        log.debug('Norm Artist: ' + artist + '->' + norm_artist)
+        norm[norm_artist] = {}
+        for album in index[artist]:
+            norm_album = normalise(album)
+            log.debug('Norm Album: ' + album + '->' + norm_album)
+            norm[norm_artist][norm_album] = []
+            for track in index[artist][album]:
+                norm_track = normalise(track)
+                log.debug('Norm Track: ' + track + '->' + norm_track)
+                norm[norm_artist][norm_album].append(norm_track)
+    return norm
 
 
 def check(test, reference):
@@ -495,12 +528,74 @@ def check(test, reference):
     return matched, miss, hit_artist, hit_album
 
 
+def comp(a, b):
+    """
+    Compare index a against index b.
+
+    Compare hierarchical index a with hierarchical index b to create 2 lists:
+        - both:  Album is in both indices
+        - a_only:  Album is only in index a
+
+    Args:
+        a:  A hierarchical index of album->artist->tracks
+        b:  A hierarchical index of album->artist->tracks
+
+    Returns:
+        returns a tuple of 3 artist-album lists:
+            - both:  Album is in both indices
+            - a_only:  Album is only in index a
+    """
+    log = logging.getLogger(__name__)
+    norm_b = normalise_index(b)
+    both = []
+    a_only = []
+    for artist in a:
+        norm_artist = normalise(artist)
+        for album in a[artist]:
+            norm_album = normalise(album)
+            match = False
+            if norm_artist in norm_b:
+                if norm_album in norm_b[norm_artist]:
+                    match = True
+            if match:
+                log.debug('Hit: ' + artist + ' / ' + album)
+                both.append({'artist': artist, 'album': album})
+            else:
+                log.debug('Miss: ' + artist + ' / ' + album)
+                a_only.append({'artist': artist, 'album': album})
+    return both, a_only
+
+
+def compare(a, b):
+    """
+    Compare index a with index b.
+
+    Compare hierarchical index a with hierarchical index b to create 3 lists:
+        - both:  Album is in both indices
+        - a_only:  Album is only in index a
+        - b_only:  Album is only in index b
+
+    Args:
+        a:  A hierarchical index of album->artist->tracks
+        b:  A hierarchical index of album->artist->tracks
+
+    Returns:
+        returns a tuple of 3 artist-album lists:
+            - both:  Album is in both indices
+            - a_only:  Album is only in index a
+            - b_only:  Album is only in index b
+    """
+    both, a_only = comp(a, b)
+    both, b_only = comp(b, a)
+    return both, a_only, b_only
+
+
 def main():
     """Run indexing and comparison operations from the command line."""
     logging.basicConfig()
     log = logging.getLogger(__name__)
     args, parser = parse_commandline()
-    log.debug("Starting with: " + args)
+    log.debug("Starting with: " + str(args))
 
     if args.action == 'index':
         for f in args.files:
@@ -510,14 +605,13 @@ def main():
             parser.print_help()
             sys.exit(-1)
         else:
-            reference = index(args.files[0])
-            test = index(args.files[1])
-            matched, miss, hit_artist, hit_album = check(test, reference)
+            a, a_name = index(args.files[0])
+            b, b_name = index(args.files[1])
+            both, a_only, b_only = compare(a, b)
 
-            aa_save(matched, 'matched.txt')
-            aa_save(miss, 'miss.txt')
-            aa_save(hit_artist, 'hit_artist.txt')
-            aa_save(hit_album, 'hit_album.txt')
+            aa_save(both, 'both.txt')
+            aa_save(a_only, a_name + '_only.txt')
+            aa_save(b_only, b_name + '_only.txt')
 
 
 if __name__ == "__main__":
