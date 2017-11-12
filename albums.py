@@ -568,7 +568,7 @@ def comp(a, b):
 
 def compare(a, b):
     """
-    Compare index a with index b.
+    Compare index a with index b in both directions.
 
     Compare hierarchical index a with hierarchical index b to create 3 lists:
         - both:  Album is in both indices
