@@ -26,10 +26,24 @@ def parse_commandline():
     """
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
-    parser = argparse.ArgumentParser(description='Compare albums from itunes'
-                                     + 'against a file system')
+    parser = argparse.ArgumentParser(description="""
+    Compare albums from multiple sources to help identify differences.  The
+    sources can be iTunes export xml file, or a directory hierarchy containing
+    music files.  For iTunes export the metadata is extracted from the xml file
+    itself whereas for a directory of music the data is collected from the ID3
+    tags contained in the music file.
+
+    Minimal normalization is performed before comparison to negate the effect
+    of punctuation, but otherwise the comparison is looking for an exact match.
+
+    To allow for multiple comparisons maybe against a static source you can
+    index the source into a yaml file.
+    """)
     parser.add_argument('action',
-                        help='The action you want to perform',
+                        help="""
+    The action you wish to perform.  index creates an xml file froom the
+    source, whereas compare compares exactly two sources.
+    """,
                         choices=['index', 'compare']
                         )
     parser.add_argument('files',
@@ -48,8 +62,7 @@ def parse_commandline():
                                  'INFO',
                                  'DEBUG'],
                         required=False,
-                        help='The library xml file produced by '
-                             + 'iTunes->File->Library->Export Library'
+                        help='Level of logging required'
                         )
     args = parser.parse_args()
     if args.loglevel.upper() == 'CRITICAL':
@@ -99,8 +112,8 @@ def artist_album_from_xml(filename):
     music = {}
     artist = ''
     album = ''
-    track_name = ''
     for track_id in tracks:
+        track_tags = {}
         track = tracks[track_id]
         if 'Album Artist' in track:
             artist = track['Album Artist']
@@ -117,21 +130,72 @@ def artist_album_from_xml(filename):
                 album = ''
                 log.warning('Unable to get album for track_id: ' + track_id)
 
-            if 'Name' in track:
-                track_name = track['Name']
-            else:
-                track_name = ''
-                log.warning('Unable to get track name for track_id: '
-                            + track_id)
+        if 'Album' in track:
+            track_tags['album'] = track['Album']
+        else:
+            track_tags['album'] = None
+        if 'Album Artist' in track:
+            track_tags['album_artist'] = track['Album Artist']
+        else:
+            track_tags['album_artist'] = None
+        if 'Artist' in track:
+            track_tags['artist'] = track['Artist']
+        else:
+            track_tags['artist'] = None
+        if 'Bit Rate' in track:
+            track_tags['bitrate'] = track['Bit Rate']
+        else:
+            track_tags['bitrate'] = None
+        if 'Disc Number' in track:
+            track_tags['disc'] = track['Disc Number']
+        else:
+            track_tags['disc'] = None
+        if 'Disc Count' in track:
+            track_tags['disc_total'] = track['Disc Count']
+        else:
+            track_tags['disc_total'] = None
+        if 'Total Time' in track:
+            track_tags['duration'] = track['Total Time'] / 1000
+        else:
+            track_tags['duration'] = None
+        if 'Size' in track:
+            track_tags['filesize'] = track['Size']
+        else:
+            track_tags['filesize'] = None
+        if 'Genre' in track:
+            track_tags['genre'] = track['Genre']
+        else:
+            track_tags['genre'] = None
+        if 'Sample Rate' in track:
+            track_tags['samplerate'] = track['Sample Rate']
+        else:
+            track_tags['samplerate'] = None
+        if 'Name' in track:
+            track_tags['title'] = track['Name']
+        else:
+            track_tags['title'] = None
+        if 'Track Number' in track:
+            track_tags['track'] = track['Track Number']
+        else:
+            track_tags['track'] = None
+        if 'Track Count' in track:
+            track_tags['track_total'] = track['Track Count']
+        else:
+            track_tags['track_total'] = None
+        if 'Release Date' in track:
+            track_tags['release_date'] = track['Release Date']
+        else:
+            track_tags['release_date'] = None
 
         if artist is not None:
             if artist not in music:
                 music[artist] = {}
             if album not in music[artist]:
-                music[artist][album] = [track_name]
+                music[artist][album] = [track_tags]
             else:
-                music[artist][album].append(track_name)
-            log.debug('Processed: ' + artist + '/' + album + '/' + track_name)
+                music[artist][album].append(track_tags)
+            log.debug('Processed: ' + artist + '/' + album + '/'
+                      + track_tags['title'])
 
     return music
 
@@ -186,19 +250,30 @@ def artist_album_from_dirs(basedir):
                 else:
                     album = tag.album
 
-                if tag.title is None or tag.title == '':
-                    log.warning('Unable to get track name for file: ' + path)
-                    track_name = ''
-                else:
-                    track_name = tag.title
+                track_tags = {
+                    'album': tag.album,
+                    'album_artist': tag.albumartist,
+                    'artist': tag.artist,
+                    'bitrate': tag.bitrate,
+                    'disc': tag.disc,
+                    'disc_total': tag.disc_total,
+                    'duration': tag.duration,
+                    'filesize': tag.filesize,
+                    'genre': tag.genre,
+                    'samplerate': tag.samplerate,
+                    'title': tag.title,
+                    'track': tag.track,
+                    'track_total': tag.track_total,
+                    'release_date': tag.year
+                    }
 
                 if artist is not None:
                     if artist not in music:
                         music[artist] = {}
                     if album not in music[artist]:
-                        music[artist][album] = [track_name]
+                        music[artist][album] = [track_tags]
                     else:
-                        music[artist][album].append(track_name)
+                        music[artist][album].append(track_tags)
                     log.debug('Processed: ' + artist + '/' + album
                               + '/' + track_name)
 
@@ -246,14 +321,16 @@ def index(location, save_yml=True, save_to=None):
         elif os.path.isdir(path):
             log.info('Indexing data recursively from ' + path)
             music = artist_album_from_dirs(path)
+
+        name, ext = os.path.splitext(path)
+        name = os.path.basename(name)
+        if name is None or name == '':
+            name = 'index'
+
         if save_yml:
             if save_to is not None:
                 out = save_to
             else:
-                name, ext = os.path.splitext(path)
-                name = os.path.basename(name)
-                if name is None or name == '':
-                    name = 'index'
                 out = name + '.yml'
             with open(out, 'w') as f:
                 f.write(yaml.dump(music))
@@ -287,8 +364,8 @@ def tree_print(music):
         for album in music[artist]:
             print('\t' + album)
             albums += 1
-            for track in music[artist][album]:
-                print('\t\t' + track)
+            for tag in music[artist][album]:
+                print('\t\t' + tag.track)
                 tracks += 1
 
     print()
@@ -299,7 +376,11 @@ def tree_print(music):
 
 def aa_print(album_artist, separator=' :: '):
     """
-    Print out artist and album from a dictionary.
+    Print out Artist album information.
+
+    Print out artist and album from the datastructure returned from the compare
+    function, which is a list of dictionaries containing 'artist' and 'album'
+    keys.
 
     Useful for debugging certain datascructures or log files
 
@@ -368,171 +449,18 @@ def normalise_index(index):
             norm_album = normalise(album)
             log.debug('Norm Album: ' + album + '->' + norm_album)
             norm[norm_artist][norm_album] = []
-            for track in index[artist][album]:
-                norm_track = normalise(track)
-                log.debug('Norm Track: ' + track + '->' + norm_track)
-                norm[norm_artist][norm_album].append(norm_track)
+            for tag in index[artist][album]:
+                norm[norm_artist][norm_album] = tag
+
     return norm
-
-
-def check(test, reference):
-    """
-    Compare test against reference indexes.
-
-    This was my first attempt at comparing 2 indexes to see which albums were
-    missing, but it involves designating one of the indexes as the reference.
-    In realist it is likely that both indices have additional and missing
-    albums.  My second attempt is the compare() function
-
-    Args:
-        test:  A hierarchical index to be checked against the reference
-        reference:  A hierarchical index to use as a comparison reference.
-
-    Returns:
-        A tuple of 4 datascructures containing album artist dictionaries
-        matched:  A list of album artist dictionaries for albums appearing in
-                  both test and reference indices.
-        hit_artist:  A list of album artist dictionaries for albums where only
-                     the artist matched.
-        hit_album:  A list of album artist dictionaries for albums where only
-                    the album name matched.
-        miss:  A list of album artist dictionaries where no match was found
-    """
-    log = logging.getLogger(__name__)
-    log.debug('Started to check test against reference')
-    # Create an index of the reference
-    ref_artist = {}     # Hash lookup of normalised artist to full artist names
-    ref_album = {}      # Hash lookup of normalised albums to full titles
-    album_artist = {}   # Lookup from album to list of artists
-    log.debug('Building reference indices')
-    log.debug('Creating artist index')
-    for artist in reference:
-        # Normalise the artist name and fill ref_artist
-        norm = normalise(artist)
-        log.debug('Normalised ' + artist + ' to ' + norm)
-        if norm in ref_artist:
-            if ref_artist[norm] != artist:
-                log.debug('Additional entry for ' + norm
-                          + ' created for ' + artist)
-                ref_artist[norm].append(artist)
-            else:
-                log.debug('Artist ' + artist + ' already indexed, skipping')
-        else:
-            log.debug('New entry for ' + norm + ' created for ' + artist)
-            ref_artist[norm] = [artist]
-
-        # for each of the artists albums
-        log.debug('Creating album index for ' + artist)
-        for album in reference[artist]:
-            # Normalise the album name and fill ref_album
-            norm = normalise(album)
-            log.debug('Normalised ' + album + ' to ' + norm)
-            if norm in ref_album:
-                found = False
-                for albums in ref_album[norm]:
-                    if albums == album:
-                        found = True
-                if not found:
-                    log.debug('Additional entry for ' + norm
-                              + ' created for ' + album)
-                    ref_album[norm].append(album)
-                else:
-                    log.debug('Duplicate album name ' + album + ', skipping')
-            else:
-                log.debug('New entry for ' + norm + ' created for ' + album)
-                ref_album[norm] = [album]
-
-            # Create a reverse lookup from album to list of artists
-            log.debug('Creating reverse lookup of album to artist')
-            if album in album_artist:
-                log.debug('Additional entry for album ' + album
-                          + ' created for ' + artist)
-                album_artist[album].append(artist)
-            else:
-                log.debug('New entry for ' + norm + ' created for ' + artist)
-                album_artist[album] = [artist]
-
-    # Create some structures to keep track of matches or possibles
-    matched = []
-    hit_artist = []
-    hit_album = []
-    miss = []
-
-    # Loop over the test trying to look up against the reference
-    log.debug('Begining matching')
-    for artist in test:
-        log.debug('Artist: ' + artist)
-        # Look for the artist
-        norm = normalise(artist)
-        if norm in ref_artist:
-            log.debug('Found match for ' + artist)
-            found_artist = ref_artist[norm]
-        else:
-            log.debug('No match found for ' + artist)
-            found_artist = None
-
-        # Look for the album
-        for album in test[artist]:
-            log.debug('Album: ' + album)
-            norm = normalise(album)
-            if norm in ref_album:
-                log.debug('Found match for ' + album)
-                found_album = ref_album[norm]
-            else:
-                log.debug('No match found for ' + album)
-                found_album = None
-
-            # Make sense of the matches
-            if found_artist is not None:
-                # We matched a normalised artist
-                if found_album is not None:
-                    # We matched a normalised album
-                    # Need to check that the album and artist correlate
-                    # We may get back a list of artists or albums...
-                    log.debug('Matched artist and album')
-                    hit = 0
-                    poss = []
-                    for artist in found_artist:
-                        for album in found_album:
-                            if album in reference[artist]:
-                                hit += 1
-                                poss.append({'artist': artist, 'album': album})
-                    if hit == 0:
-                        # No correlation between the matched artist and album!
-                        log.info('No correlation: ' + artist + '/' + album)
-                        miss.append({'artist': artist, 'album': album})
-                    elif hit == 1:
-                        # A single correlation - assume correct
-                        log.info('Found a match: ' + artist + '/' + album)
-                        matched.append({'artist': poss[0]['artist'],
-                                       'album': poss[0]['album']})
-                    else:
-                        # Multiple possibilities
-                        log.info('Multiple hits: ' + artist + '/' + album)
-                        hit_album.append({'artist': artist, 'album': album})
-                else:
-                    # Hit the artist only
-                    log.info('Artist only: ' + artist + '/' + album)
-                    hit_artist.append({'artist': artist, 'album': album})
-            else:
-                # We didn't match a normalised artist
-                if found_album is not None:
-                    # We hit an album title
-                    log.info('Album only: ' + artist + '/' + album)
-                    hit_album.append({'artist': artist, 'album': album})
-                else:
-                    # Didn't hit anything
-                    log.info('Miss: ' + artist + '/' + album)
-                    miss.append({'artist': artist, 'album': album})
-
-    return matched, miss, hit_artist, hit_album
 
 
 def comp(a, b):
     """
-    Compare index a against index b.
+    Compare albums in index a against those in index b.
 
     Compare hierarchical index a with hierarchical index b to create 2 lists:
+    Comparison is to the album level only.  No track comparison is attempted.
         - both:  Album is in both indices
         - a_only:  Album is only in index a
 
@@ -569,6 +497,9 @@ def comp(a, b):
 def compare(a, b):
     """
     Compare index a with index b in both directions.
+
+    The comparison is only to the album level.  No track comparison is
+    attempted.
 
     Compare hierarchical index a with hierarchical index b to create 3 lists:
         - both:  Album is in both indices
