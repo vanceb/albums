@@ -10,11 +10,14 @@ of artist -> album -> track.  It also allows for the comparison of
 import os
 import sys
 import string
+import math
+from datetime import datetime
 import logging
 import argparse
 import plistlib                 # To read iTunes export xml file
 from tinytag import TinyTag     # ID3 Tag reader
 import yaml
+import playlist
 
 
 def parse_commandline():
@@ -42,9 +45,10 @@ def parse_commandline():
     parser.add_argument('action',
                         help="""
     The action you wish to perform.  index creates an xml file froom the
-    source, whereas compare compares exactly two sources.
+    source, whereas compare compares exactly two sources.  playlist generates
+    playlists from the music.
     """,
-                        choices=['index', 'compare']
+                        choices=['index', 'compare', 'playlist']
                         )
     parser.add_argument('files',
                         help='The file(s) to work on - compare needs exactly '
@@ -63,6 +67,20 @@ def parse_commandline():
                                  'DEBUG'],
                         required=False,
                         help='Level of logging required'
+                        )
+    parser.add_argument('-p',
+                        '--pdir',
+                        dest='playlist_dir',
+                        default='.',
+                        required=False,
+                        help='The base directory for playlists'
+                        )
+    parser.add_argument('-r',
+                        '--relative',
+                        dest='relative',
+                        action='store_true',
+                        help='Should the media paths be relative to the '
+                             + 'playlist'
                         )
     args = parser.parse_args()
     if args.loglevel.upper() == 'CRITICAL':
@@ -186,6 +204,11 @@ def artist_album_from_xml(filename):
             track_tags['release_date'] = track['Release Date']
         else:
             track_tags['release_date'] = None
+        if 'Location' in track and track['Location'].startswith('file://'):
+            track_tags['location'] = track['Location'][7:]
+        else:
+            track_tags['location'] = None
+            log.error("No file location for track_id: " + track_id)
 
         if artist is not None:
             if artist not in music:
@@ -264,7 +287,8 @@ def artist_album_from_dirs(basedir):
                     'title': tag.title,
                     'track': tag.track,
                     'track_total': tag.track_total,
-                    'release_date': tag.year
+                    'release_date': tag.year,
+                    'location': path
                     }
 
                 if artist is not None:
@@ -521,6 +545,183 @@ def compare(a, b):
     return both, a_only, b_only
 
 
+######################
+# Playlists
+######################
+
+def get_year(datestring):
+    """
+    Parse a date type string looking for a year.
+
+    Parse a date type string into a datetime object using ever less accurate
+    date formats.
+
+    Args:
+        datestring:  The string to parse for a date
+
+    Returns:
+        A numeric year value as an integer
+
+    """
+    log = logging.getLogger(__name__)
+    if datestring is None:
+        return None
+    log.debug("Attempting to parse date from: " + datestring)
+    # Try to parse ISO date string
+    try:
+        dt = datetime.strptime(datestring, '%Y-%m-%dT%H:%M:%SZ')
+        log.debug("Got high quality date: " + str(dt.year))
+    except ValueError:
+        # Try to parse general date format
+        try:
+            dt = datetime.strptime(datestring, '%Y-%m-%d')
+            log.debug("Got valid date: " + str(dt.year))
+        except ValueError:
+            # Try to parse year/month format
+            try:
+                dt = datetime.strptime(datestring, '%Y-%m')
+                log.debug("Parsed year and month: " + str(dt.year))
+            except ValueError:
+                # Try to parse just a 4-digit year
+                try:
+                    dt = datetime.strptime(datestring, '%Y')
+                    log.debug("Parsed 4-digit year only: " + str(dt.year))
+                except ValueError:
+                    # Try to parse a 2-digit year
+                    try:
+                        dt = datetime.strptime(datestring, '%y')
+                        log.warning("Only able to parse 2 digit year: "
+                                    + str(dt.year) + " from: " + datestring)
+                    except ValueError:
+                        # Failed...
+                        dt = None
+                        log.error("Unable to parse year value from: "
+                                  + datestring)
+
+    if dt is not None:
+        return dt.year
+    else:
+        return None
+
+
+def write_playlists(music, playlist_dir='.', relative=True):
+    """
+    Write playlists based on the music metadata.
+
+    This function will write a number of playlists:
+        Artist - All of the artists songs
+        Album - All tracks on the album
+        Year - All songs released in a year
+        Decade - All songs released in a decade
+
+    Args:
+        playlist_dir:  The directory below which to create the playlists
+        relative:  Use relative paths in the playlists?
+
+    """
+    log = logging.getLogger(__name__)
+    # Create a dictionary to hold the songs for each year
+    years = {}
+    # Sort out the directories
+    basedir = os.path.abspath(playlist_dir)
+    basedir = os.path.join(basedir, 'playlists')
+    log.debug("Playlists will be stored here: " + basedir)
+    releaseddir = os.path.join(basedir, 'released')
+    log.debug("Year and decade playlists will be stored here: " + releaseddir)
+    albumdir = os.path.join(basedir, 'albums')
+    log.debug("Artist/album playlists will be stored here: " + albumdir)
+
+    # Create the release date directory  if needed
+    if not os.path.exists(releaseddir):
+        log.info("Creating year/decade playlist directory: " + releaseddir)
+        os.makedirs(releaseddir)
+
+    # Loop over the artists
+    for artist in music:
+        log.debug("Artist: " + str(artist))
+        # Create an artist directory if needed
+        artist_dir = os.path.join(albumdir, artist)
+        if not os.path.exists(artist_dir):
+            log.info("Creating artist playlist directory: " + artist_dir)
+            os.makedirs(artist_dir)
+        # Create the artist playlist
+        pl_filename = 'all_' + artist + '.m3u'
+        pl_filename = ''.join(c for c in pl_filename if c not in '/\\')
+        pl_filename = os.path.join(artist_dir, pl_filename)
+        artist_pl = playlist.Playlist(filename=pl_filename)
+
+        # Loop over the artists albums
+        for album in music[artist]:
+            log.debug("Album: " + str(album))
+            # Create an album playlist
+            pl_filename = album + '.m3u'
+            pl_filename = ''.join(c for c in pl_filename if c not in '/\\')
+            pl_filename = os.path.join(artist_dir, pl_filename)
+            album_pl = playlist.Playlist(filename=pl_filename)
+
+            # Loop over the songs on the album
+            for song in music[artist][album]:
+                log.debug("Song: " + song['title'])
+                # Add song to the playlists
+                try:
+                    artist_pl.append(song)
+                    album_pl.append(song)
+                    # Place the song in the correct year list
+                    yr = get_year(song['release_date'])
+                    if yr is not None:
+                        if yr not in years:
+                            log.debug("First song from year: " + str(yr))
+                            years[yr] = [song]
+                        else:
+                            years[yr].append(song)
+
+                except ValueError:
+                    log.error("Missing playlist data for: " + str(song))
+
+            # Write the album playlist
+            log.info("Saving album playlist: " + str(album_pl))
+            album_pl.write(relative=relative)
+        # Write the artist playlist
+        log.info("Saving artist playlist: " + str(artist_pl))
+        artist_pl.write(relative=relative)
+
+    # Create the year and decade playlists
+    log.debug("Starting to process time-based playlists")
+    decade = None
+    dc_pl = None
+    for yr in sorted(years):
+        log.debug("Processing year: " + str(yr))
+        # Decade playlist
+        if decade != str(math.floor(yr/10)*10):
+            # We have changed decades so write the old playlist
+            if decade is not None:
+                # Not the first year processed so write decade playlist
+                log.info("Saving decade playlist: " + str(dc_pl))
+                dc_pl.write(relative=relative)
+            # Set the decade and create the playlist
+            decade = str(math.floor(yr/10)*10)
+            log.debug("New Decade: " + decade)
+            pl_filename = os.path.join(releaseddir, decade + '_s.m3u')
+            dc_pl = playlist.Playlist(filename=pl_filename)
+
+        # Year playlist
+        pl_filename = os.path.join(releaseddir, str(yr) + '.m3u')
+        yr_pl = playlist.Playlist(filename=pl_filename)
+
+        # Loop over the songs adding to the playlists
+        for song in years[yr]:
+            yr_pl.append(song)
+            dc_pl.append(song)
+
+        # Write the "year" playlist
+        log.info("Saving year playlist: " + str(yr_pl))
+        yr_pl.write(relative=relative)
+
+    # Write the last Decade playlist
+    log.info("Saving decade playlist: " + str(dc_pl))
+    dc_pl.write(relative=relative)
+
+
 def main():
     """Run indexing and comparison operations from the command line."""
     logging.basicConfig()
@@ -543,6 +744,13 @@ def main():
             aa_save(both, 'both.txt')
             aa_save(a_only, a_name + '_only.txt')
             aa_save(b_only, b_name + '_only.txt')
+    elif args.action == 'playlist':
+        if len(args.files) != 1:
+            parser.print_help()
+            sys.exit(-1)
+        else:
+            music, name = index(args.files[0])
+            write_playlists(music, args.playlist_dir, args.relative)
 
 
 if __name__ == "__main__":
